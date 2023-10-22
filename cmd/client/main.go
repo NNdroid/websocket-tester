@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"github.com/gorilla/websocket"
 	"net"
 	"net/url"
 	"os"
+	"time"
 	"websocket-tester/pkg/log"
 )
 
@@ -19,8 +21,9 @@ var testData = []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a
 var config Config
 
 func init() {
-	flag.StringVar(&config.WebsocketURL, "s", "wss://stream.nndroid.com/ws", "websocket url")
+	flag.StringVar(&config.WebsocketURL, "s", "wss://stream.nndroid.com/ws", "url")
 	flag.StringVar(&config.IPAddress, "a", "1.1.1.1", "ip address")
+	flag.StringVar(&config.Timeout, "t", "10s", "timeout")
 	flag.Parse()
 }
 
@@ -29,7 +32,12 @@ func main() {
 	if err != nil {
 		log.Logger().Fatalf("url parse error: %v", err)
 	}
+	duration, err := time.ParseDuration(config.Timeout)
+	if err != nil {
+		log.Logger().Fatalf("duration parse error: %v", err)
+	}
 	dialer := websocket.Dialer{
+		HandshakeTimeout: duration,
 		NetDial: func(network, addr string) (net.Conn, error) {
 			_, port, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -38,12 +46,21 @@ func main() {
 			return net.Dial(network, net.JoinHostPort(config.IPAddress, port))
 		},
 	}
-	c, _, err := dialer.Dial(u.String(), nil)
+	var start time.Time
+	var end time.Time
+	var cost time.Duration
+	start = time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+	c, _, err := dialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		log.Logger().Fatalf("websocket dial error: %v", err)
 	}
-	log.Logger().Infof("connected to %s", u.String())
+	end = time.Now()
+	cost = end.Sub(start)
+	log.Logger().Infof("connected to %s, cost: %s", u.String(), cost)
 	defer c.Close()
+	start = time.Now()
 	err = c.WriteMessage(websocket.TextMessage, testData)
 	if err != nil {
 		log.Logger().Fatalf("write data error: %v", err)
@@ -54,6 +71,9 @@ func main() {
 		log.Logger().Fatalf("read data error: %v", err)
 	}
 	log.Logger().Infof("received: %v", msg)
+	end = time.Now()
+	cost = end.Sub(start)
+	log.Logger().Infof("read & write cost: %s", cost)
 	if bytes.Compare(testData, msg) == 0 {
 		os.Exit(0)
 	} else {
