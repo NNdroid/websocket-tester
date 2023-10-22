@@ -36,14 +36,15 @@ func main() {
 	if err != nil {
 		log.Logger().Fatalf("duration parse error: %v", err)
 	}
-	dialer := websocket.Dialer{
+	netDialer := &net.Dialer{}
+	wsDialer := websocket.Dialer{
 		HandshakeTimeout: duration,
-		NetDial: func(network, addr string) (net.Conn, error) {
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			_, port, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, err
 			}
-			return net.Dial(network, net.JoinHostPort(config.IPAddress, port))
+			return netDialer.DialContext(ctx, network, net.JoinHostPort(config.IPAddress, port))
 		},
 	}
 	var start time.Time
@@ -52,7 +53,7 @@ func main() {
 	start = time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	c, _, err := dialer.DialContext(ctx, u.String(), nil)
+	c, _, err := wsDialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		log.Logger().Fatalf("websocket dial error: %v", err)
 	}
